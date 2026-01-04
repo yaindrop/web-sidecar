@@ -1,8 +1,11 @@
 import SwiftUI
 import BackendLib
+import ServiceManagement
 
 @main
 struct WebSidecarApp: App {
+    @AppStorage("launchAtLogin") var launchAtLogin = false
+
     init() {
         startServer()
     }
@@ -14,6 +17,20 @@ struct WebSidecarApp: App {
             print("Server started on port \(Config.port)")
         } catch {
             print("Failed to start server: \(error)")
+        }
+    }
+    
+    func toggleLaunchAtLogin() {
+        if #available(macOS 13.0, *) {
+            do {
+                if launchAtLogin {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                print("Failed to update launch at login: \(error)")
+            }
         }
     }
 
@@ -38,6 +55,16 @@ struct WebSidecarApp: App {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: configURL.deletingLastPathComponent().path)
                 }
             }
+            
+            Divider()
+
+            Toggle("Open at Login", isOn: Binding(
+                get: { launchAtLogin },
+                set: { newValue in
+                    launchAtLogin = newValue
+                    toggleLaunchAtLogin()
+                }
+            ))
             
             Divider()
             
