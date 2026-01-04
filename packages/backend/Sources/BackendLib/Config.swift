@@ -1,13 +1,13 @@
 import Foundation
 
-struct ConfigData: Codable {
-    var maxDimension: Int
-    var videoQuality: Float
+public struct ConfigData: Codable {
+    public var maxDimension: Int
+    public var videoQuality: Float
 }
 
-enum Config {
-    static let port: UInt16 = 65532
-    static let boundary = "meDisplayBoundary"
+public enum Config {
+    public static let port: UInt16 = 65532
+    public static let boundary = "meDisplayBoundary"
 
     private static let fileURL: URL = {
         let cwd = FileManager.default.currentDirectoryPath

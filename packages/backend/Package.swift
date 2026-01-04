@@ -6,14 +6,23 @@ import PackageDescription
 let package = Package(
     name: "Backend",
     platforms: [
-        .macOS(.v13), // ScreenCaptureKit requires macOS 12.3+, but let's target recent
+        .macOS(.v13), // ScreenCaptureKit requires macOS 12.3+
+    ],
+    products: [
+        .library(name: "Backend", targets: ["BackendLib"]),
+        .executable(name: "BackendCLI", targets: ["BackendCLI"]),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
+        // Core logic library
+        .target(
+            name: "BackendLib",
+            path: "Sources/BackendLib"
+        ),
+        // Command-line interface
         .executableTarget(
-            name: "Backend",
-            path: "Sources/Backend",
+            name: "BackendCLI",
+            dependencies: ["BackendLib"],
+            path: "Sources/BackendCLI"
         ),
     ],
 )

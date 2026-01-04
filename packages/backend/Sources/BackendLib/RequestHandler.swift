@@ -5,6 +5,23 @@ class RequestHandler {
     private let connection: NWConnection
     private var streamer: MJPEGStreamer?
 
+    private var publicDir: URL? {
+        if let resourceURL = Bundle.main.resourceURL {
+            let publicURL = resourceURL.appendingPathComponent("public")
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: publicURL.path, isDirectory: &isDir), isDir.boolValue {
+                return publicURL
+            }
+        }
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let publicCwd = cwd.appendingPathComponent("public")
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: publicCwd.path, isDirectory: &isDir), isDir.boolValue {
+            return publicCwd
+        }
+        return nil
+    }
+
     init(connection: NWConnection) {
         self.connection = connection
     }
@@ -31,7 +48,95 @@ class RequestHandler {
         } else if path.hasPrefix("/v/"), method == "GET" {
             handleVideoStream(path: path)
         } else {
+            // Static file serving fallback
+            if method == "GET" {
+                serveStaticFile(path: path)
+            } else {
+                send404()
+            }
+        }
+    }
+
+    private func serveStaticFile(path: String) {
+        guard let publicDir else {
             send404()
+            return
+        }
+
+        var filePath = path
+        if filePath == "/" {
+            filePath = "/index.html"
+        }
+
+        // Security check: prevent directory traversal
+        if filePath.contains("..") {
+            send404()
+            return
+        }
+        
+        // Remove leading slash for appending
+        if filePath.hasPrefix("/") {
+            filePath = String(filePath.dropFirst())
+        }
+
+        let fileURL = publicDir.appendingPathComponent(filePath)
+        
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDir) {
+             if isDir.boolValue {
+                 // Try index.html in directory
+                 let indexURL = fileURL.appendingPathComponent("index.html")
+                 if FileManager.default.fileExists(atPath: indexURL.path) {
+                     sendFile(url: indexURL)
+                     return
+                 }
+             } else {
+                 sendFile(url: fileURL)
+                 return
+             }
+        }
+        
+        // SPA Fallback: if not found and it looks like a route (no extension), serve index.html
+        if !filePath.contains(".") {
+             let indexURL = publicDir.appendingPathComponent("index.html")
+             if FileManager.default.fileExists(atPath: indexURL.path) {
+                 sendFile(url: indexURL)
+                 return
+             }
+        }
+
+        send404()
+    }
+
+    private func sendFile(url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            let contentType = mimeType(for: url.pathExtension)
+            
+            let header = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: \(contentType)\r\nContent-Length: \(data.count)\r\nConnection: close\r\n\r\n"
+            var packet = header.data(using: .utf8) ?? Data()
+            packet.append(data)
+            
+            connection.send(content: packet, completion: .contentProcessed { [weak self] _ in
+                self?.connection.cancel()
+            })
+        } catch {
+            Logger.log("Failed to read file \(url.path): \(error)")
+            send404()
+        }
+    }
+
+    private func mimeType(for extension: String) -> String {
+        switch `extension`.lowercased() {
+        case "html": return "text/html"
+        case "css": return "text/css"
+        case "js": return "application/javascript"
+        case "json": return "application/json"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "svg": return "image/svg+xml"
+        case "ico": return "image/x-icon"
+        default: return "application/octet-stream"
         }
     }
 

@@ -1,11 +1,11 @@
 import Foundation
 import Network
 
-class HTTPServer {
+public class HTTPServer {
     let listener: NWListener
     var connections: [ObjectIdentifier: ConnectionManager] = [:]
 
-    init(port: UInt16) throws {
+    public init(port: UInt16) throws {
         let params = NWParameters.tcp
         let options = NWProtocolTCP.Options()
         options.enableKeepalive = true
@@ -15,7 +15,7 @@ class HTTPServer {
         listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
     }
 
-    func start() {
+    public func start() {
         listener.stateUpdateHandler = { state in
             switch state {
             case .ready:
