@@ -1,0 +1,12 @@
+{
+  "name": "@websidecar/macos",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "clean": "rm -rf .build",
+    "format": "swiftformat .",
+    "lint": "swiftformat --lint .",
+    "build": "./bundle_app.sh",
+    "open": "open .build/release/WebSidecar.app"
+  }
+}

@@ -10,9 +10,42 @@ public enum Config {
     public static let boundary = "meDisplayBoundary"
 
     private static let fileURL: URL = {
-        let cwd = FileManager.default.currentDirectoryPath
-        return URL(fileURLWithPath: cwd).appendingPathComponent("config.json")
+        // Try to find a suitable location for config
+        let fileManager = FileManager.default
+
+        // 1. Environment Variable Override
+        if let envPath = ProcessInfo.processInfo.environment["WEBSIDECAR_CONFIG"] {
+            let envURL = URL(fileURLWithPath: envPath)
+            // If it's a directory, append config.json
+            var isDir: ObjCBool = false
+            if fileManager.fileExists(atPath: envURL.path, isDirectory: &isDir), isDir.boolValue {
+                return envURL.appendingPathComponent("config.json")
+            }
+            return envURL
+        }
+        
+        // 2. Check if running as a CLI in a local dev environment (cwd/config.json exists)
+        let cwd = fileManager.currentDirectoryPath
+        let localConfig = URL(fileURLWithPath: cwd).appendingPathComponent("config.json")
+        if fileManager.fileExists(atPath: localConfig.path) {
+            return localConfig
+        }
+
+        // 3. Use Application Support (Preferred for both App and installed CLI tools)
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let appDir = appSupport.appendingPathComponent("com.yaindrop.websidecar")
+            // Create directory if needed
+            try? fileManager.createDirectory(at: appDir, withIntermediateDirectories: true)
+            return appDir.appendingPathComponent("config.json")
+        }
+        
+        // 4. Fallback to CWD if all else fails
+        return localConfig
     }()
+
+    public static var configURL: URL {
+        return fileURL
+    }
 
     private static var _data: ConfigData = {
         do {

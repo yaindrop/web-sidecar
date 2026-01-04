@@ -30,6 +30,15 @@ struct WebSidecarApp: App {
                 }
             }
             
+            Button("Open Config Folder") {
+                let configURL = Config.configURL
+                if FileManager.default.fileExists(atPath: configURL.path) {
+                    NSWorkspace.shared.activateFileViewerSelecting([configURL])
+                } else {
+                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: configURL.deletingLastPathComponent().path)
+                }
+            }
+            
             Divider()
             
             Button("Quit") {
