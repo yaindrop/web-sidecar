@@ -1,0 +1,12 @@
+{
+  "name": "@websidecar/backend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "clean": "rm -rf .build",
+    "format": "swiftformat .",
+    "lint": "swiftformat --lint .",
+    "dev": "swift run",
+    "build": "swift build"
+  }
+}

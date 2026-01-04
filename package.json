@@ -1,0 +1,17 @@
+{
+  "name": "websidecar",
+  "private": true,
+  "scripts": {
+    "clean": "pnpm -r clean",
+    "format": "pnpm -r format",
+    "lint": "pnpm -r lint",
+    "dev": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue,green\" \"pnpm dev:backend\" \"sleep 2 && pnpm dev:frontend\"",
+    "dev:backend": "pnpm --filter @websidecar/backend dev",
+    "dev:frontend": "pnpm --filter @websidecar/frontend dev",
+    "build:frontend": "pnpm --filter @websidecar/frontend build",
+    "build:backend": "pnpm --filter @websidecar/backend build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
