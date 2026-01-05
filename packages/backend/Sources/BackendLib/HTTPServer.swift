@@ -20,10 +20,10 @@ public class HTTPServer {
         listener.stateUpdateHandler = { state in
             switch state {
             case .ready:
-                Logger.server.info("Server started on port \(Config.port, privacy: .public)")
+                Log.server.info("Server started on port \(Config.port)")
                 self.printIPs()
             case let .failed(error):
-                Logger.server.critical("Server failed: \(error.localizedDescription, privacy: .public)")
+                Log.server.critical("Server failed: \(error.localizedDescription)")
                 exit(1)
             default:
                 break

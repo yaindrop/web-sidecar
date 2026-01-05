@@ -49,7 +49,7 @@ final class RequestHandler {
     // MARK: - Public API
 
     func handle(method: String, path: String, body: String? = nil) {
-        Logger.request.log("\(method) \(path)")
+        Log.request.log("\(method) \(path)")
 
         if method == "OPTIONS" {
             sendCORSPreflight()
@@ -150,7 +150,7 @@ final class RequestHandler {
                 self?.connection.cancel()
             })
         } catch {
-            Logger.request.error("Failed to read file \(url.path(percentEncoded: false), privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Log.request.error("Failed to read file \(url.path(percentEncoded: false)): \(error.localizedDescription)")
             send404()
         }
     }
@@ -205,7 +205,7 @@ final class RequestHandler {
 
         connection.send(content: headers.data(using: .utf8), completion: .contentProcessed { [weak self] error in
             if let error {
-                Logger.request.error("Failed to send headers: \(error.localizedDescription, privacy: .public)")
+                Log.request.error("Failed to send headers: \(error.localizedDescription)")
                 self?.connection.cancel()
                 return
             }

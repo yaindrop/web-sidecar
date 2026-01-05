@@ -61,7 +61,7 @@ final class MJPEGStreamer: NSObject {
                 try await startCapture()
             } catch {
                 guard !Task.isCancelled else { return }
-                Logger.stream.error("Failed to start stream: \(error.localizedDescription, privacy: .public)")
+                Log.stream.error("Failed to start stream: \(error.localizedDescription)")
             }
         }
         state.withLock { $0.captureTask = task }
@@ -84,7 +84,7 @@ final class MJPEGStreamer: NSObject {
 
         task?.cancel()
 
-        Logger.stream.info("Stopping stream for display \(self.displayID, privacy: .public)")
+        Log.stream.info("Stopping stream for display \(displayID)")
 
         if let stream {
             try? stream.removeStreamOutput(self, type: .screen)
@@ -139,11 +139,11 @@ final class MJPEGStreamer: NSObject {
                 VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
                 state.compressionSessionBox = CompressionSessionBox(session: session)
             } else {
-                Logger.stream.error("Failed to create compression session: \(status, privacy: .public)")
+                Log.stream.error("Failed to create compression session: \(status)")
             }
         }
 
-        Logger.stream.info("Started capture for display \(self.displayID, privacy: .public)")
+        Log.stream.info("Started capture for display \(displayID)")
     }
 
     private func createStreamConfiguration(for display: SCDisplay) -> SCStreamConfiguration {
@@ -194,7 +194,7 @@ final class MJPEGStreamer: NSObject {
         )
 
         if status != noErr {
-            Logger.stream.error("Encoding failed: \(status, privacy: .public)")
+            Log.stream.error("Encoding failed: \(status)")
             processingFinished()
         }
     }
@@ -223,7 +223,7 @@ final class MJPEGStreamer: NSObject {
     fileprivate func handleEncodedFrame(_ data: Data) {
         outputHandler(data) { [weak self] error in
             if let error {
-                Logger.stream.error("Output failed: \(error.localizedDescription, privacy: .public)")
+                Log.stream.error("Output failed: \(error.localizedDescription)")
                 self?.stop()
             }
             self?.processingFinished()
@@ -285,4 +285,50 @@ private func compressionCallback(
 
 private enum StreamError: Error {
     case displayNotFound(Int)
+}
+
+// MARK: - CMSampleBuffer Extensions
+
+extension CMSampleBuffer {
+    func createData() -> Data? {
+        guard let dataBuffer = CMSampleBufferGetDataBuffer(self) else { return nil }
+
+        var lengthAtOffset = 0
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<CChar>?
+
+        let status = CMBlockBufferGetDataPointer(
+            dataBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: &lengthAtOffset,
+            totalLengthOut: &totalLength,
+            dataPointerOut: &dataPointer,
+        )
+
+        guard status == noErr else { return nil }
+
+        if totalLength == 0 { return Data() }
+
+        // Optimization: Zero-copy access if the buffer is contiguous
+        if lengthAtOffset == totalLength, let ptr = dataPointer {
+            return Data(
+                bytesNoCopy: UnsafeMutableRawPointer(ptr),
+                count: totalLength,
+                deallocator: .custom { _, _ in
+                    // Retain the underlying CMBlockBuffer
+                    _ = dataBuffer
+                },
+            )
+        }
+
+        // Fallback: Copy data if buffer is non-contiguous
+        var data = Data(count: totalLength)
+        let copyStatus = data.withUnsafeMutableBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return OSStatus(-1) }
+            return CMBlockBufferCopyDataBytes(dataBuffer, atOffset: 0, dataLength: totalLength, destination: baseAddress)
+        }
+
+        guard copyStatus == noErr else { return nil }
+        return data
+    }
 }

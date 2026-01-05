@@ -33,14 +33,14 @@ final class ConnectionManager: @unchecked Sendable {
             let id = id
             switch state {
             case .ready:
-                Logger.connection.debug("[\(id)] State: Ready")
+                Log.connection.debug("[\(id)] State: Ready")
             case let .waiting(error):
-                Logger.connection.warning("[\(id)] State: Waiting - \(error.localizedDescription, privacy: .public)")
+                Log.connection.warning("[\(id)] State: Waiting - \(error.localizedDescription)")
             case let .failed(error):
-                Logger.connection.error("[\(id)] State: Failed - \(error.localizedDescription, privacy: .public)")
+                Log.connection.error("[\(id)] State: Failed - \(error.localizedDescription)")
                 handleClose()
             case .cancelled:
-                Logger.connection.debug("[\(id)] State: Cancelled")
+                Log.connection.debug("[\(id)] State: Cancelled")
                 handleClose()
             default:
                 break
@@ -51,7 +51,7 @@ final class ConnectionManager: @unchecked Sendable {
     // MARK: - Public API
 
     func start() {
-        Logger.connection.info("[\(self.id)] Client connected from \(self.connection.endpoint.debugDescription, privacy: .public)")
+        Log.connection.info("[\(id)] Client connected from \(connection.endpoint.debugDescription)")
         connection.start(queue: queue)
         readRequest()
     }
@@ -97,9 +97,9 @@ final class ConnectionManager: @unchecked Sendable {
 
             if isComplete || error != nil {
                 if let error {
-                    Logger.connection.error("[\(id)] Receive error: \(error.localizedDescription, privacy: .public)")
+                    Log.connection.error("[\(id)] Receive error: \(error.localizedDescription)")
                 } else {
-                    Logger.connection.info("[\(id)] Client closed connection gracefully")
+                    Log.connection.info("[\(id)] Client closed connection gracefully")
                 }
                 connection.cancel()
                 return
