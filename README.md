@@ -89,7 +89,25 @@ The application automatically loads configuration from the following locations (
 }
 ```
 
-## 🛠 Tech Stack
+## � Distribution
+
+The `bundle_app.sh` script creates a locally signed application using ad-hoc signing.
+
+**Sharing via GitHub:**
+If you upload the built `.app` (zipped) to GitHub, other users can download it, but they will encounter macOS Gatekeeper security warnings because the app is not notarized by Apple.
+
+**Instructions for Users:**
+To run the app downloaded from GitHub, users must bypass the Gatekeeper check:
+
+1.  Unzip the app.
+2.  Open Terminal.
+3.  Run the following command to remove the quarantine attribute:
+    ```bash
+    xattr -cr /path/to/WebSidecar.app
+    ```
+4.  Open the app normally.
+
+## �🛠 Tech Stack
 
 - **Swift**: Backend logic, HTTP Server, ScreenCaptureKit, SwiftUI.
 - **React**: Frontend UI, Video Player.
