@@ -67,7 +67,13 @@ struct WebSidecarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text("WebSidecar: Running")
+            Button("WebSidecar: Running") {
+                let host = hostIP ?? "localhost"
+                if let url = URL(string: "http://\(host):\(String(Config.port))") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .help("Click to open in browser")
 
             if let ip = hostIP {
                 Button("Host: \(ip):\(String(Config.port))") {
@@ -77,13 +83,6 @@ struct WebSidecarApp: App {
                 }
                 .keyboardShortcut("c", modifiers: .command)
                 .help("Click to copy URL")
-            }
-
-            Button("Open in Browser") {
-                let host = hostIP ?? "localhost"
-                if let url = URL(string: "http://\(host):\(String(Config.port))") {
-                    NSWorkspace.shared.open(url)
-                }
             }
 
             Divider()
