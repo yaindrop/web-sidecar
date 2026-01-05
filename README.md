@@ -4,7 +4,7 @@
 
 # WebSidecar
 
-**English** | [简体中文](README_CN.md)
+**English** | [中文](README_CN.md)
 
 **Turn any browser into a secondary display for your Mac.**
 

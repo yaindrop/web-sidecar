@@ -4,7 +4,7 @@
 
 # WebSidecar
 
-[English](README.md) | **简体中文**
+[English](README.md) | **中文**
 
 **将任何浏览器变成 Mac 的第二块屏幕。**
 
