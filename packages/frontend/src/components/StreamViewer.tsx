@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tooltip } from 'antd';
 import { ArrowLeft, Maximize, Minimize } from 'lucide-react';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 
 import { cn } from '../utils/cn';
 import { useIsFullscreen, useToggleFullscreen } from '../utils/fullscreen';
@@ -40,7 +40,10 @@ const StreamViewerButton = ({ onClick, icon }: StreamViewerButtonProps) => (
       'hover:brightness-120',
       'active:brightness-75'
     )}
-    onClick={onClick}
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick();
+    }}
   >
     {icon}
   </div>
@@ -56,18 +59,59 @@ const StreamViewer = () => {
   const isFullscreen = useIsFullscreen();
   const toggleFullscreen = useToggleFullscreen(containerRef);
 
+  const [showControls, setShowControls] = useState(true);
+  const timeoutRef = useRef<number | null>(null);
+
+  const resetTimeout = () => {
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = window.setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  };
+
+  useEffect(() => {
+    resetTimeout();
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [isFullscreen]);
+
+  const lastTapRef = useRef<number>(0);
+
+  const handleActivity = () => {
+    setShowControls(true);
+    resetTimeout();
+  };
+
+  const handleContainerClick = () => {
+    handleActivity();
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      toggleFullscreen();
+    }
+    lastTapRef.current = now;
+  };
+
   return (
     <div
       ref={containerRef}
       className={cn(
         'w-screen h-screen bg-black flex justify-center items-center relative overflow-hidden',
-        isFullscreen && 'w-full h-full'
+        isFullscreen && 'w-full h-full',
+        !showControls && 'cursor-none'
       )}
+      onMouseMove={handleActivity}
+      onTouchStart={handleActivity}
+      onClick={handleContainerClick}
     >
       <div
         className={cn(
           'absolute top-5 left-5 z-10 transition-opacity duration-300',
-          isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+          !showControls ? 'opacity-0' : 'opacity-100'
         )}
       >
         <Tooltip title="Back to List">
@@ -78,7 +122,7 @@ const StreamViewer = () => {
       <div
         className={cn(
           'absolute top-5 right-5 z-10 transition-opacity duration-300',
-          isFullscreen ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+          !showControls ? 'opacity-0' : 'opacity-100'
         )}
       >
         <Tooltip title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}>

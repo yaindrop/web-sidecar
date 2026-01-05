@@ -9,7 +9,9 @@
     "dev:backend": "pnpm --filter @websidecar/backend dev",
     "dev:frontend": "pnpm --filter @websidecar/frontend dev",
     "build:frontend": "pnpm --filter @websidecar/frontend build",
-    "build:backend": "pnpm --filter @websidecar/backend build"
+    "build:backend": "pnpm --filter @websidecar/backend build",
+    "build:app": "pnpm --filter @websidecar/macos build",
+    "dev:app": "pnpm --filter @websidecar/macos dev"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
