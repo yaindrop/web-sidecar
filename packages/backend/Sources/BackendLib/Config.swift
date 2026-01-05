@@ -11,7 +11,7 @@ public struct ConfigData: Codable, Sendable {
 public enum Config {
     // MARK: - Constants
 
-    public static let port: UInt16 = 65532
+    public static let port: UInt16 = 9327
     public static let boundary = "websidecar"
 
     // MARK: - Storage

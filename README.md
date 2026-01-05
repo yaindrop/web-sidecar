@@ -96,7 +96,7 @@ Run the backend CLI and frontend development server independently for rapid deve
 pnpm dev
 ```
 
-- Backend runs on http://localhost:65532
+- Backend runs on http://localhost:9327
 - Frontend runs on http://localhost:5173
 
 ### Building for Distribution
