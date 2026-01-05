@@ -14,7 +14,7 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
     private var stream: SCStream?
     private var compressionSession: VTCompressionSession?
 
-    // Backpressure
+    // Concurrency control
     private struct SampleBufferBox: @unchecked Sendable {
         let buffer: CMSampleBuffer
     }
@@ -82,7 +82,9 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
     }
 
     func stop() {
+        Logger.log("Stopping stream for display \(displayID)")
         Task { try? await stream?.stopCapture() }
+
         if let session = compressionSession {
             VTCompressionSessionInvalidate(session)
             compressionSession = nil
@@ -104,7 +106,7 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
             compressedDataAllocator: nil,
             outputCallback: compressionCallback,
             refcon: Unmanaged.passUnretained(self).toOpaque(),
-            compressionSessionOut: &compressionSession
+            compressionSessionOut: &compressionSession,
         )
 
         if status != noErr {
@@ -120,8 +122,10 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
         guard type == .screen, let session = compressionSession else { return }
 
         let sampleBufferBox = SampleBufferBox(buffer: sampleBuffer)
+        let dropFramesWhenBusy = Config.dropFramesWhenBusy
+
         let shouldEncode: Bool = state.withLock { state in
-            if state.isBusy {
+            if dropFramesWhenBusy, state.isBusy {
                 // If busy, store this frame as the pending one (replacing any previous pending one)
                 state.pendingFrame = sampleBufferBox
                 return false
@@ -149,7 +153,7 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
             duration: CMSampleBufferGetDuration(sampleBuffer),
             frameProperties: nil,
             sourceFrameRefcon: nil,
-            infoFlagsOut: nil
+            infoFlagsOut: nil,
         )
 
         if status != noErr {
@@ -159,8 +163,8 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
     }
 
     private func processingFinished() {
-        let nextFrame: SampleBufferBox? = state.withLock { state in
-            if let pending = state.pendingFrame {
+        let pendingFrame: SampleBufferBox? = state.withLock { state in
+            if Config.dropFramesWhenBusy, let pending = state.pendingFrame {
                 state.pendingFrame = nil
                 return pending
             } else {
@@ -169,9 +173,9 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
             }
         }
 
-        if let nextFrame {
+        if let pendingFrame {
             if let session = compressionSession {
-                encode(nextFrame.buffer, session: session)
+                encode(pendingFrame.buffer, session: session)
             } else {
                 state.withLock { state in state.isBusy = false }
             }
@@ -195,12 +199,12 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
 
 func compressionCallback(outputCallbackRefCon: UnsafeMutableRawPointer?, sourceFrameRefCon _: UnsafeMutableRawPointer?, status: OSStatus, infoFlags _: VTEncodeInfoFlags, sampleBuffer: CMSampleBuffer?) {
     guard let refCon = outputCallbackRefCon else { return }
-    let encoder = Unmanaged<MJPEGStreamer>.fromOpaque(refCon).takeUnretainedValue()
+    let streamer = Unmanaged<MJPEGStreamer>.fromOpaque(refCon).takeUnretainedValue()
 
     guard status == noErr, let sampleBuffer, let data = sampleBuffer.createData() else {
-        encoder.handleEncodingError()
+        streamer.handleEncodingError()
         return
     }
 
-    encoder.handleEncodedFrame(data)
+    streamer.handleEncodedFrame(data)
 }

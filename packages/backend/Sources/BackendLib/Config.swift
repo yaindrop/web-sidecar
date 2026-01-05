@@ -3,6 +3,7 @@ import Foundation
 public struct ConfigData: Codable {
     public var maxDimension: Int
     public var videoQuality: Float
+    public var dropFramesWhenBusy: Bool?
 }
 
 public enum Config {
@@ -23,7 +24,7 @@ public enum Config {
             }
             return envURL
         }
-        
+
         // 2. Check if running as a CLI in a local dev environment (cwd/config.json exists)
         let cwd = fileManager.currentDirectoryPath
         let localConfig = URL(fileURLWithPath: cwd).appendingPathComponent("config.json")
@@ -38,13 +39,13 @@ public enum Config {
             try? fileManager.createDirectory(at: appDir, withIntermediateDirectories: true)
             return appDir.appendingPathComponent("config.json")
         }
-        
+
         // 4. Fallback to CWD if all else fails
         return localConfig
     }()
 
     public static var configURL: URL {
-        return fileURL
+        fileURL
     }
 
     private static var _data: ConfigData = {
@@ -53,7 +54,7 @@ public enum Config {
             return try JSONDecoder().decode(ConfigData.self, from: data)
         } catch {
             Logger.log("Failed to load config from \(fileURL.path), using defaults: \(error)")
-            return ConfigData(maxDimension: 1920, videoQuality: 0.75)
+            return ConfigData(maxDimension: 1920, videoQuality: 0.75, dropFramesWhenBusy: true)
         }
     }()
 
@@ -73,6 +74,14 @@ public enum Config {
         }
     }
 
+    static var dropFramesWhenBusy: Bool {
+        get { _data.dropFramesWhenBusy ?? true }
+        set {
+            _data.dropFramesWhenBusy = newValue
+            save()
+        }
+    }
+
     static func save() {
         do {
             let data = try JSONEncoder().encode(_data)
@@ -86,9 +95,8 @@ public enum Config {
         _data
     }
 
-    static func update(maxDimension: Int, videoQuality: Float) {
-        _data.maxDimension = maxDimension
-        _data.videoQuality = videoQuality
+    static func update(_ configData: ConfigData) {
+        _data = configData
         save()
     }
 }

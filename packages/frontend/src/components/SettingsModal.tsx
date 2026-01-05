@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Slider, message, Select } from 'antd';
+import { Modal, Form, Slider, message, Select, Switch } from 'antd';
 import { getConfig, updateConfig } from '../api';
 
 interface SettingsModalProps {
@@ -79,6 +79,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) => {
           help="JPEG compression quality (0.1 - 1.0)"
         >
           <Slider min={0.1} max={1.0} step={0.05} />
+        </Form.Item>
+        <Form.Item
+          name="dropFramesWhenBusy"
+          label="Drop Frames When Busy"
+          valuePropName="checked"
+          help="Drop frames if the network or client is too slow"
+        >
+          <Switch />
         </Form.Item>
       </Form>
     </Modal>

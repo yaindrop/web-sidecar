@@ -16,13 +16,13 @@ let package = Package(
         // Core logic library
         .target(
             name: "BackendLib",
-            path: "Sources/BackendLib"
+            path: "Sources/BackendLib",
         ),
         // Command-line interface
         .executableTarget(
             name: "BackendCLI",
             dependencies: ["BackendLib"],
-            path: "Sources/BackendCLI"
+            path: "Sources/BackendCLI",
         ),
     ],
 )

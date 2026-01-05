@@ -41,7 +41,7 @@ class RequestHandler {
             if method == "GET" {
                 sendConfig()
             } else if method == "POST", let body {
-                updateConfig(body: body)
+                updateConfig(json: body)
             } else {
                 send404()
             }
@@ -73,36 +73,36 @@ class RequestHandler {
             send404()
             return
         }
-        
+
         // Remove leading slash for appending
         if filePath.hasPrefix("/") {
             filePath = String(filePath.dropFirst())
         }
 
         let fileURL = publicDir.appendingPathComponent(filePath)
-        
+
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDir) {
-             if isDir.boolValue {
-                 // Try index.html in directory
-                 let indexURL = fileURL.appendingPathComponent("index.html")
-                 if FileManager.default.fileExists(atPath: indexURL.path) {
-                     sendFile(url: indexURL)
-                     return
-                 }
-             } else {
-                 sendFile(url: fileURL)
-                 return
-             }
+            if isDir.boolValue {
+                // Try index.html in directory
+                let indexURL = fileURL.appendingPathComponent("index.html")
+                if FileManager.default.fileExists(atPath: indexURL.path) {
+                    sendFile(url: indexURL)
+                    return
+                }
+            } else {
+                sendFile(url: fileURL)
+                return
+            }
         }
-        
+
         // SPA Fallback: if not found and it looks like a route (no extension), serve index.html
         if !filePath.contains(".") {
-             let indexURL = publicDir.appendingPathComponent("index.html")
-             if FileManager.default.fileExists(atPath: indexURL.path) {
-                 sendFile(url: indexURL)
-                 return
-             }
+            let indexURL = publicDir.appendingPathComponent("index.html")
+            if FileManager.default.fileExists(atPath: indexURL.path) {
+                sendFile(url: indexURL)
+                return
+            }
         }
 
         send404()
@@ -112,11 +112,11 @@ class RequestHandler {
         do {
             let data = try Data(contentsOf: url)
             let contentType = mimeType(for: url.pathExtension)
-            
+
             let header = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: \(contentType)\r\nContent-Length: \(data.count)\r\nConnection: close\r\n\r\n"
             var packet = header.data(using: .utf8) ?? Data()
             packet.append(data)
-            
+
             connection.send(content: packet, completion: .contentProcessed { [weak self] _ in
                 self?.connection.cancel()
             })
@@ -128,15 +128,15 @@ class RequestHandler {
 
     private func mimeType(for extension: String) -> String {
         switch `extension`.lowercased() {
-        case "html": return "text/html"
-        case "css": return "text/css"
-        case "js": return "application/javascript"
-        case "json": return "application/json"
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "svg": return "image/svg+xml"
-        case "ico": return "image/x-icon"
-        default: return "application/octet-stream"
+        case "html": "text/html"
+        case "css": "text/css"
+        case "js": "application/javascript"
+        case "json": "application/json"
+        case "png": "image/png"
+        case "jpg", "jpeg": "image/jpeg"
+        case "svg": "image/svg+xml"
+        case "ico": "image/x-icon"
+        default: "application/octet-stream"
         }
     }
 
@@ -163,9 +163,9 @@ class RequestHandler {
         sendResponse(body: json, contentType: "application/json")
     }
 
-    private func updateConfig(body: String) {
+    private func updateConfig(json: String) {
         do {
-            try APIResponder.updateConfig(body: body)
+            try APIResponder.updateConfig(json: json)
             sendResponse(body: "{\"status\": \"ok\"}", contentType: "application/json")
         } catch {
             sendResponse(status: "400 Bad Request", body: "{\"error\": \"Invalid config\"}", contentType: "application/json")

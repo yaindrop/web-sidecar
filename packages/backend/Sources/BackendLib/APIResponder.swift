@@ -25,9 +25,9 @@ enum APIResponder {
         return String(data: jsonData, encoding: .utf8) ?? "{}"
     }
 
-    static func updateConfig(body: String) throws {
-        guard let data = body.data(using: .utf8) else { throw URLError(.badURL) }
+    static func updateConfig(json: String) throws {
+        guard let data = json.data(using: .utf8) else { throw URLError(.badURL) }
         let newConfig = try JSONDecoder().decode(ConfigData.self, from: data)
-        Config.update(maxDimension: newConfig.maxDimension, videoQuality: newConfig.videoQuality)
+        Config.update(newConfig)
     }
 }
