@@ -12,8 +12,6 @@ final class MJPEGStreamer: NSObject {
     // MARK: - Constants
 
     private static let queueDepth = 2
-    private static let timescale: Int32 = 60
-    private static let frameInterval = CMTime(value: 1, timescale: timescale)
     private static let pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
     // MARK: - Properties
@@ -149,7 +147,8 @@ final class MJPEGStreamer: NSObject {
     private func createStreamConfiguration(for display: SCDisplay) -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
 
-        config.minimumFrameInterval = Self.frameInterval
+        let targetFps = Config.targetFps
+        config.minimumFrameInterval = CMTime(value: 1, timescale: Int32(targetFps))
         config.queueDepth = Self.queueDepth
         config.pixelFormat = Self.pixelFormat
         config.capturesAudio = false

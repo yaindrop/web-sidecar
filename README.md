@@ -8,16 +8,11 @@ WebSidecar runs a local server on your Mac that streams your display content to 
 
 ### Instructions for Users
 
-If you have downloaded the pre-built application (e.g., from GitHub Releases), you must bypass the macOS Gatekeeper security check because the app is locally signed and not notarized by Apple.
+If you have downloaded the pre-built application (e.g., from GitHub Releases), you may see a security warning because the app is not notarized by Apple.
 
-1. Unzip the app.
-2. Open Terminal and navigate to the app's directory.
-3. Run the following command to remove the quarantine attribute:
-   ```bash
-   xattr -cr ./WebSidecar.app
-   ```
-4. Open the app normally.
-5. The app will appear in your menu bar. Click the icon to open the web interface.
+1. **Right-click** (or Control-click) the `WebSidecar.app` file and select **Open**.
+2. In the dialog that appears, click **Open** again to confirm you want to run the app.
+3. The app will appear in your menu bar. Click the icon to open the web interface.
 
 ### Configuration
 

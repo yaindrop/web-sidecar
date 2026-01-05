@@ -8,6 +8,7 @@ export interface AppConfig {
   maxDimension: number;
   videoQuality: number;
   dropFramesWhenBusy?: boolean;
+  targetFps?: number;
 }
 
 export const getDisplays = async (): Promise<DisplayInfo[]> => {

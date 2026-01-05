@@ -4,6 +4,7 @@ import os
 public struct ConfigData: Codable, Sendable {
     public var maxDimension: Int
     public var videoQuality: Float
+    public var targetFps: Int?
     public var dropFramesWhenBusy: Bool?
 }
 
@@ -61,7 +62,7 @@ public enum Config {
             return try JSONDecoder().decode(ConfigData.self, from: data)
         } catch {
             Log.config.error("Failed to load config from \(configURL.path(percentEncoded: false)), using defaults: \(error.localizedDescription)")
-            return ConfigData(maxDimension: 1920, videoQuality: 0.75, dropFramesWhenBusy: true)
+            return ConfigData(maxDimension: 1920, videoQuality: 0.75, targetFps: 60, dropFramesWhenBusy: true)
         }
     }
 
@@ -82,6 +83,16 @@ public enum Config {
         set {
             data.withLock {
                 $0.videoQuality = newValue
+                saveToDisk($0)
+            }
+        }
+    }
+
+    static var targetFps: Int {
+        get { data.withLock { $0.targetFps ?? 60 } }
+        set {
+            data.withLock {
+                $0.targetFps = newValue
                 saveToDisk($0)
             }
         }

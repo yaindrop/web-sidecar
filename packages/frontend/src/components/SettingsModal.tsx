@@ -19,6 +19,14 @@ const dimensionOptions = [
   { value: 3840, label: '3840 (4K UHD)' },
 ];
 
+const targetFpsOptions = [
+  { value: 15, label: '15 FPS' },
+  { value: 30, label: '30 FPS' },
+  { value: 60, label: '60 FPS' },
+  { value: 90, label: '90 FPS' },
+  { value: 120, label: '120 FPS' },
+];
+
 const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -71,6 +79,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) => {
           help="The maximum width or height of the video stream"
         >
           <Select options={dimensionOptions} />
+        </Form.Item>
+        <Form.Item
+          name="targetFps"
+          label="Target FPS"
+          initialValue={60}
+          help="Maximum frames per second"
+        >
+          <Select options={targetFpsOptions} />
         </Form.Item>
         <Form.Item
           name="videoQuality"
