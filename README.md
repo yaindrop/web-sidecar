@@ -4,6 +4,8 @@
 
 # WebSidecar
 
+**English** | [简体中文](README_CN.md)
+
 **Turn any browser into a secondary display for your Mac.**
 
 WebSidecar runs a local server on your Mac, streaming your display content to any device on your local network with low latency. Built with a modular architecture, it combines a high-performance **Swift** backend ⚡ and a modern **React** frontend ⚛️, all packaged into a native macOS menu bar application.
@@ -131,7 +133,7 @@ Uploaded `.app` zips will trigger macOS Gatekeeper warnings (see "Instructions f
 
 ## 🤖 Built with AI
 
-The code of this project is ~95% written by **[Trae](https://trae.ai)**.
+The code of this project is ~95% written by **[Trae AI](https://trae.ai)**.
 
 ## 📄 License
 
