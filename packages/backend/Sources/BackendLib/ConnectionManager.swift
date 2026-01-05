@@ -1,31 +1,62 @@
 import Foundation
 import Network
+import os
 
-class ConnectionManager {
-    let connection: NWConnection
-    let requestHandler: RequestHandler
-    var onClose: (() -> Void)?
+final class ConnectionManager: @unchecked Sendable {
+    // MARK: - Properties
+
+    private let id = UUID()
+
+    private let connection: NWConnection
+    private let requestHandler: RequestHandler
+
+    // Serial queue for this connection to ensure sequential processing
+    private let queue = DispatchQueue(label: "com.websidecar.connection")
+
+    // Protect mutable state
+    private let lock = OSAllocatedUnfairLock()
+    private var _onClose: (@Sendable () -> Void)?
+
+    var onClose: (@Sendable () -> Void)? {
+        get { lock.withLock { _onClose } }
+        set { lock.withLock { _onClose = newValue } }
+    }
+
+    // MARK: - Initialization
 
     init(connection: NWConnection) {
         self.connection = connection
         requestHandler = RequestHandler(connection: connection)
 
         connection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            let id = id
             switch state {
-            case .failed(_), .cancelled:
-                self?.requestHandler.stop()
-                self?.onClose?()
+            case .ready:
+                Logger.connection.debug("[\(id)] State: Ready")
+            case let .waiting(error):
+                Logger.connection.warning("[\(id)] State: Waiting - \(error.localizedDescription, privacy: .public)")
+            case let .failed(error):
+                Logger.connection.error("[\(id)] State: Failed - \(error.localizedDescription, privacy: .public)")
+                handleClose()
+            case .cancelled:
+                Logger.connection.debug("[\(id)] State: Cancelled")
+                handleClose()
             default:
                 break
             }
         }
     }
 
+    // MARK: - Public API
+
     func start() {
-        Logger.log("Client connected: \(connection.endpoint)")
-        connection.start(queue: .global(qos: .userInteractive))
+        Logger.connection.info("[\(self.id)] Client connected from \(self.connection.endpoint.debugDescription, privacy: .public)")
+        connection.start(queue: queue)
         readRequest()
     }
+
+    // MARK: - Private: Reading
 
     private func readRequest() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
@@ -41,6 +72,8 @@ class ConnectionManager {
             }
         }
     }
+
+    // MARK: - Private: Handling
 
     private func parseAndHandle(_ request: String) {
         let components = request.components(separatedBy: "\r\n\r\n")
@@ -63,12 +96,21 @@ class ConnectionManager {
             guard let self else { return }
 
             if isComplete || error != nil {
-                Logger.log("Client closed connection: \(isComplete), \(error?.localizedDescription ?? "no error")")
+                if let error {
+                    Logger.connection.error("[\(id)] Receive error: \(error.localizedDescription, privacy: .public)")
+                } else {
+                    Logger.connection.info("[\(id)] Client closed connection gracefully")
+                }
                 connection.cancel()
                 return
             }
 
             waitForClose()
         }
+    }
+
+    private func handleClose() {
+        requestHandler.stop()
+        onClose?()
     }
 }

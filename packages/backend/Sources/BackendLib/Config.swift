@@ -56,7 +56,7 @@ public enum Config {
             let data = try Data(contentsOf: fileURL)
             return try JSONDecoder().decode(ConfigData.self, from: data)
         } catch {
-            Logger.log("Failed to load config from \(fileURL.path), using defaults: \(error)")
+            Logger.config.error("Failed to load config from \(fileURL.path, privacy: .public), using defaults: \(error.localizedDescription, privacy: .public)")
             return ConfigData(maxDimension: 1920, videoQuality: 0.75, dropFramesWhenBusy: true)
         }
     }()
@@ -100,7 +100,7 @@ public enum Config {
             let data = try JSONEncoder().encode(_data)
             try data.write(to: fileURL)
         } catch {
-            Logger.log("Failed to save config to \(fileURL.path): \(error)")
+            Logger.config.error("Failed to save config to \(fileURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 

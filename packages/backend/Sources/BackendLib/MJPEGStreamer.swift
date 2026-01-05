@@ -61,7 +61,7 @@ final class MJPEGStreamer: NSObject {
                 try await startCapture()
             } catch {
                 guard !Task.isCancelled else { return }
-                Logger.log("Failed to start stream: \(error)")
+                Logger.stream.error("Failed to start stream: \(error.localizedDescription, privacy: .public)")
             }
         }
         state.withLock { $0.captureTask = task }
@@ -84,7 +84,7 @@ final class MJPEGStreamer: NSObject {
 
         task?.cancel()
 
-        Logger.log("Stopping stream for display \(displayID)")
+        Logger.stream.info("Stopping stream for display \(self.displayID, privacy: .public)")
 
         if let stream {
             try? stream.removeStreamOutput(self, type: .screen)
@@ -131,7 +131,7 @@ final class MJPEGStreamer: NSObject {
                 compressedDataAllocator: nil,
                 outputCallback: compressionCallback,
                 refcon: Unmanaged.passUnretained(self).toOpaque(),
-                compressionSessionOut: &session
+                compressionSessionOut: &session,
             )
 
             if status == noErr, let session {
@@ -139,11 +139,11 @@ final class MJPEGStreamer: NSObject {
                 VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
                 state.compressionSessionBox = CompressionSessionBox(session: session)
             } else {
-                Logger.log("Failed to create compression session: \(status)")
+                Logger.stream.error("Failed to create compression session: \(status, privacy: .public)")
             }
         }
 
-        Logger.log("Started capture for display \(displayID)")
+        Logger.stream.info("Started capture for display \(self.displayID, privacy: .public)")
     }
 
     private func createStreamConfiguration(for display: SCDisplay) -> SCStreamConfiguration {
@@ -190,11 +190,11 @@ final class MJPEGStreamer: NSObject {
             duration: CMSampleBufferGetDuration(sampleBuffer),
             frameProperties: nil,
             sourceFrameRefcon: nil,
-            infoFlagsOut: nil
+            infoFlagsOut: nil,
         )
 
         if status != noErr {
-            Logger.log("Encoding failed: \(status)")
+            Logger.stream.error("Encoding failed: \(status, privacy: .public)")
             processingFinished()
         }
     }
@@ -223,7 +223,7 @@ final class MJPEGStreamer: NSObject {
     fileprivate func handleEncodedFrame(_ data: Data) {
         outputHandler(data) { [weak self] error in
             if let error {
-                Logger.log("Output failed: \(error)")
+                Logger.stream.error("Output failed: \(error.localizedDescription, privacy: .public)")
                 self?.stop()
             }
             self?.processingFinished()
@@ -268,7 +268,7 @@ private func compressionCallback(
     sourceFrameRefCon _: UnsafeMutableRawPointer?,
     status: OSStatus,
     infoFlags _: VTEncodeInfoFlags,
-    sampleBuffer: CMSampleBuffer?
+    sampleBuffer: CMSampleBuffer?,
 ) {
     guard let refCon = outputCallbackRefCon else { return }
     let streamer = Unmanaged<MJPEGStreamer>.fromOpaque(refCon).takeUnretainedValue()

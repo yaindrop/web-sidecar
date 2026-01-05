@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 public class HTTPServer {
     let listener: NWListener
@@ -19,10 +20,10 @@ public class HTTPServer {
         listener.stateUpdateHandler = { state in
             switch state {
             case .ready:
-                Logger.log("Server started on port \(Config.port)")
+                Logger.server.info("Server started on port \(Config.port, privacy: .public)")
                 self.printIPs()
             case let .failed(error):
-                Logger.log("Server failed: \(error)")
+                Logger.server.critical("Server failed: \(error.localizedDescription, privacy: .public)")
                 exit(1)
             default:
                 break

@@ -9,7 +9,7 @@ struct Main {
             server.start()
             RunLoop.main.run()
         } catch {
-            Logger.log("Failed to create server: \(error)")
+            print("Failed to create server: \(error)")
             exit(1)
         }
     }

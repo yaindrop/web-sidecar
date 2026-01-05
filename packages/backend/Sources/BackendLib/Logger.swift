@@ -1,11 +1,13 @@
 import Foundation
+import os
 
-public enum Logger {
-    public static func log(_ message: String) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let logMessage = "[\(formatter.string(from: Date()))] \(message)"
-        print(logMessage)
-        fflush(stdout)
-    }
+public extension Logger {
+    private static var subsystem = Bundle.main.bundleIdentifier ?? "com.yaindrop.websidecar"
+
+    static let server = Logger(subsystem: subsystem, category: "server")
+    static let connection = Logger(subsystem: subsystem, category: "connection")
+    static let stream = Logger(subsystem: subsystem, category: "stream")
+    static let config = Logger(subsystem: subsystem, category: "config")
+    static let request = Logger(subsystem: subsystem, category: "request")
+    static let general = Logger(subsystem: subsystem, category: "general")
 }

@@ -1,61 +1,88 @@
 import Foundation
 import Network
+import os
+import UniformTypeIdentifiers
 
-class RequestHandler {
+final class RequestHandler {
+    // MARK: - Properties
+
     private let connection: NWConnection
-    private var streamer: MJPEGStreamer?
 
-    private var publicDir: URL? {
+    // Protect mutable state with a lock for strict concurrency safety
+    private let lock = OSAllocatedUnfairLock()
+    private var _streamer: MJPEGStreamer?
+
+    private var streamer: MJPEGStreamer? {
+        get { lock.withLock { _streamer } }
+        set { lock.withLock { _streamer = newValue } }
+    }
+
+    private lazy var publicDir: URL? = {
+        let fileManager = FileManager.default
+
+        // 1. Check Bundle Resources
         if let resourceURL = Bundle.main.resourceURL {
-            let publicURL = resourceURL.appendingPathComponent("public")
+            let publicURL = resourceURL.appending(path: "public", directoryHint: .isDirectory)
             var isDir: ObjCBool = false
-            if FileManager.default.fileExists(atPath: publicURL.path, isDirectory: &isDir), isDir.boolValue {
+            if fileManager.fileExists(atPath: publicURL.path(percentEncoded: false), isDirectory: &isDir), isDir.boolValue {
                 return publicURL
             }
         }
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let publicCwd = cwd.appendingPathComponent("public")
+
+        // 2. Check Current Working Directory
+        let cwd = URL(filePath: fileManager.currentDirectoryPath, directoryHint: .isDirectory)
+        let publicCwd = cwd.appending(path: "public", directoryHint: .isDirectory)
         var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: publicCwd.path, isDirectory: &isDir), isDir.boolValue {
+        if fileManager.fileExists(atPath: publicCwd.path(percentEncoded: false), isDirectory: &isDir), isDir.boolValue {
             return publicCwd
         }
+
         return nil
-    }
+    }()
+
+    // MARK: - Initialization
 
     init(connection: NWConnection) {
         self.connection = connection
     }
 
-    func handle(method: String, path: String, body: String? = nil) {
-        Logger.log("\(method) \(path)")
+    // MARK: - Public API
 
-        // Handle CORS Preflight
+    func handle(method: String, path: String, body: String? = nil) {
+        Logger.request.log("\(method) \(path)")
+
         if method == "OPTIONS" {
             sendCORSPreflight()
             return
         }
 
-        if path == "/api/displays", method == "GET" {
+        // Router
+        switch (method, path) {
+        case ("GET", "/api/displays"):
             sendDisplays()
-        } else if path == "/api/config" {
-            if method == "GET" {
-                sendConfig()
-            } else if method == "POST", let body {
+
+        case ("GET", "/api/config"):
+            sendConfig()
+
+        case ("POST", "/api/config"):
+            if let body {
                 updateConfig(json: body)
             } else {
                 send404()
             }
-        } else if path.hasPrefix("/v/"), method == "GET" {
+
+        case ("GET", _) where path.hasPrefix("/v/"):
             handleVideoStream(path: path)
-        } else {
-            // Static file serving fallback
-            if method == "GET" {
-                serveStaticFile(path: path)
-            } else {
-                send404()
-            }
+
+        case ("GET", _):
+            serveStaticFile(path: path)
+
+        default:
+            send404()
         }
     }
+
+    // MARK: - Static File Serving
 
     private func serveStaticFile(path: String) {
         guard let publicDir else {
@@ -63,6 +90,7 @@ class RequestHandler {
             return
         }
 
+        // Sanitize path
         var filePath = path
         if filePath == "/" {
             filePath = "/index.html"
@@ -79,14 +107,15 @@ class RequestHandler {
             filePath = String(filePath.dropFirst())
         }
 
-        let fileURL = publicDir.appendingPathComponent(filePath)
+        let fileURL = publicDir.appending(path: filePath)
 
+        // Check if file exists
         var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDir) {
+        if FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false), isDirectory: &isDir) {
             if isDir.boolValue {
                 // Try index.html in directory
-                let indexURL = fileURL.appendingPathComponent("index.html")
-                if FileManager.default.fileExists(atPath: indexURL.path) {
+                let indexURL = fileURL.appending(path: "index.html")
+                if FileManager.default.fileExists(atPath: indexURL.path(percentEncoded: false)) {
                     sendFile(url: indexURL)
                     return
                 }
@@ -98,8 +127,8 @@ class RequestHandler {
 
         // SPA Fallback: if not found and it looks like a route (no extension), serve index.html
         if !filePath.contains(".") {
-            let indexURL = publicDir.appendingPathComponent("index.html")
-            if FileManager.default.fileExists(atPath: indexURL.path) {
+            let indexURL = publicDir.appending(path: "index.html")
+            if FileManager.default.fileExists(atPath: indexURL.path(percentEncoded: false)) {
                 sendFile(url: indexURL)
                 return
             }
@@ -111,7 +140,7 @@ class RequestHandler {
     private func sendFile(url: URL) {
         do {
             let data = try Data(contentsOf: url)
-            let contentType = mimeType(for: url.pathExtension)
+            let contentType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
             let header = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: \(contentType)\r\nContent-Length: \(data.count)\r\nConnection: close\r\n\r\n"
             var packet = header.data(using: .utf8) ?? Data()
@@ -121,24 +150,12 @@ class RequestHandler {
                 self?.connection.cancel()
             })
         } catch {
-            Logger.log("Failed to read file \(url.path): \(error)")
+            Logger.request.error("Failed to read file \(url.path(percentEncoded: false), privacy: .public): \(error.localizedDescription, privacy: .public)")
             send404()
         }
     }
 
-    private func mimeType(for extension: String) -> String {
-        switch `extension`.lowercased() {
-        case "html": "text/html"
-        case "css": "text/css"
-        case "js": "application/javascript"
-        case "json": "application/json"
-        case "png": "image/png"
-        case "jpg", "jpeg": "image/jpeg"
-        case "svg": "image/svg+xml"
-        case "ico": "image/x-icon"
-        default: "application/octet-stream"
-        }
-    }
+    // MARK: - API Handlers
 
     private func sendCORSPreflight() {
         let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n"
@@ -188,25 +205,27 @@ class RequestHandler {
 
         connection.send(content: headers.data(using: .utf8), completion: .contentProcessed { [weak self] error in
             if let error {
-                Logger.log("Failed to send headers: \(error)")
+                Logger.request.error("Failed to send headers: \(error.localizedDescription, privacy: .public)")
                 self?.connection.cancel()
                 return
             }
 
             guard let self else { return }
 
-            streamer = MJPEGStreamer(displayID: displayID) { [weak self] data, completion in
+            let newStreamer = MJPEGStreamer(displayID: displayID) { [weak self] data, completion in
                 guard let self else {
                     completion(NWError.posix(.ECANCELED))
                     return
                 }
                 sendFrame(data, completion: completion)
             }
-            streamer?.start()
+
+            streamer = newStreamer
+            newStreamer.start()
         })
     }
 
-    private func sendFrame(_ data: Data, completion: @escaping (Error?) -> Void) {
+    private func sendFrame(_ data: Data, completion: @escaping @Sendable (Error?) -> Void) {
         let header = "--\(Config.boundary)\r\nContent-Type: image/jpeg\r\nContent-Length: \(data.count)\r\n\r\n"
         var packet = header.data(using: .utf8) ?? Data()
         packet.append(data)
@@ -228,7 +247,10 @@ class RequestHandler {
         sendResponse(status: "404 Not Found", body: "Not Found", contentType: "text/plain")
     }
 
+    // MARK: - Lifecycle
+
     func stop() {
         streamer?.stop()
+        streamer = nil
     }
 }
