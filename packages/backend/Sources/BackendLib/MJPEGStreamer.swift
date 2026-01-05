@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
+import os
 import ScreenCaptureKit
 import VideoToolbox
 
@@ -13,8 +14,17 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
     private var stream: SCStream?
     private var compressionSession: VTCompressionSession?
 
-    // Backpressure: 1 = free, 0 = busy
-    private let processingSemaphore = DispatchSemaphore(value: 1)
+    // Backpressure
+    private struct SampleBufferBox: @unchecked Sendable {
+        let buffer: CMSampleBuffer
+    }
+
+    private struct ProcessingState {
+        var isBusy = false
+        var pendingFrame: SampleBufferBox?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: ProcessingState())
 
     init(displayID: Int, outputHandler: @escaping OutputHandler) {
         self.displayID = displayID
@@ -77,6 +87,10 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
             VTCompressionSessionInvalidate(session)
             compressionSession = nil
         }
+
+        state.withLock { state in
+            state = ProcessingState()
+        }
     }
 
     private func setupCompressionSession(width: Int, height: Int) {
@@ -90,7 +104,7 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
             compressedDataAllocator: nil,
             outputCallback: compressionCallback,
             refcon: Unmanaged.passUnretained(self).toOpaque(),
-            compressionSessionOut: &compressionSession,
+            compressionSessionOut: &compressionSession
         )
 
         if status != noErr {
@@ -105,41 +119,77 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
     func stream(_: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, let session = compressionSession else { return }
 
-        if processingSemaphore.wait(timeout: .now()) != .success { return }
+        let sampleBufferBox = SampleBufferBox(buffer: sampleBuffer)
+        let shouldEncode: Bool = state.withLock { state in
+            if state.isBusy {
+                // If busy, store this frame as the pending one (replacing any previous pending one)
+                state.pendingFrame = sampleBufferBox
+                return false
+            }
 
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            processingSemaphore.signal()
+            state.isBusy = true
+            return true
+        }
+
+        if shouldEncode {
+            encode(sampleBuffer, session: session)
+        }
+    }
+
+    private func encode(_ sampleBuffer: CMSampleBuffer, session: VTCompressionSession) {
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            processingFinished()
             return
         }
 
         let status = VTCompressionSessionEncodeFrame(
             session,
-            imageBuffer: pixelBuffer,
+            imageBuffer: imageBuffer,
             presentationTimeStamp: CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
             duration: CMSampleBufferGetDuration(sampleBuffer),
             frameProperties: nil,
             sourceFrameRefcon: nil,
-            infoFlagsOut: nil,
+            infoFlagsOut: nil
         )
 
         if status != noErr {
             Logger.log("Encoding failed: \(status)")
-            processingSemaphore.signal()
+            processingFinished()
+        }
+    }
+
+    private func processingFinished() {
+        let nextFrame: SampleBufferBox? = state.withLock { state in
+            if let pending = state.pendingFrame {
+                state.pendingFrame = nil
+                return pending
+            } else {
+                state.isBusy = false
+                return nil
+            }
+        }
+
+        if let nextFrame {
+            if let session = compressionSession {
+                encode(nextFrame.buffer, session: session)
+            } else {
+                state.withLock { state in state.isBusy = false }
+            }
         }
     }
 
     func handleEncodedFrame(_ data: Data) {
         outputHandler(data) { [weak self] error in
-            self?.processingSemaphore.signal()
             if let error {
                 Logger.log("Output failed: \(error)")
                 self?.stop()
             }
+            self?.processingFinished()
         }
     }
 
     func handleEncodingError() {
-        processingSemaphore.signal()
+        processingFinished()
     }
 }
 
