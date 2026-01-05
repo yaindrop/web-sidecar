@@ -10,6 +10,8 @@
 
 WebSidecar runs a local server on your Mac, streaming your display content to any device on your local network with low latency. Built with a modular architecture, it combines a high-performance **Swift** backend ⚡ and a modern **React** frontend ⚛️, all packaged into a native macOS menu bar application.
 
+> Huge thanks to **[meDisplay](https://github.com/zanjie1999/meDisplay)** for the inspiration that made this project possible!
+
 ## 🚀 Installation and Usage
 
 > ⚠️ **Compatibility Note**: This application requires **macOS 13+**. It has been tested primarily on a **MacBook Pro M1 Pro** running **macOS 26.2**.
