@@ -6,139 +6,176 @@ import os
 import ScreenCaptureKit
 import VideoToolbox
 
-class MJPEGStreamer: NSObject, SCStreamOutput {
-    typealias OutputHandler = (Data, @escaping (Error?) -> Void) -> Void
+final class MJPEGStreamer: NSObject {
+    typealias OutputHandler = @Sendable (Data, @escaping @Sendable (Error?) -> Void) -> Void
+
+    // MARK: - Constants
+
+    private static let queueDepth = 2
+    private static let timescale: Int32 = 60
+    private static let frameInterval = CMTime(value: 1, timescale: timescale)
+    private static let pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+
+    // MARK: - Properties
 
     private let displayID: Int
     private let outputHandler: OutputHandler
-    private var stream: SCStream?
-    private var compressionSession: VTCompressionSession?
 
-    // Concurrency control
+    // MARK: - State Management
+
     private struct SampleBufferBox: @unchecked Sendable {
         let buffer: CMSampleBuffer
     }
 
-    private struct ProcessingState {
-        var isBusy = false
-        var pendingFrame: SampleBufferBox?
+    private struct CompressionSessionBox: @unchecked Sendable {
+        let session: VTCompressionSession
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: ProcessingState())
+    private struct State {
+        var stream: SCStream?
+        var captureTask: Task<Void, Never>?
+        var isBusy = false
+        var sampleBufferBox: SampleBufferBox?
+        var compressionSessionBox: CompressionSessionBox?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    // MARK: - Initialization
 
     init(displayID: Int, outputHandler: @escaping OutputHandler) {
         self.displayID = displayID
         self.outputHandler = outputHandler
     }
 
+    deinit {
+        stop()
+    }
+
+    // MARK: - Public
+
     func start() {
-        Task {
+        let task = Task { [weak self] in
+            guard let self else { return }
             do {
-                let content = try await SCShareableContent.current
-                guard let display = content.displays.first(where: { $0.displayID == self.displayID }) else {
-                    Logger.log("Display \(displayID) not found")
-                    return
-                }
-
-                let filter = SCContentFilter(display: display, excludingWindows: [])
-                let config = createStreamConfiguration(for: display)
-
-                stream = SCStream(filter: filter, configuration: config, delegate: nil)
-                try stream?.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global(qos: .userInteractive))
-                try await stream?.startCapture()
-                Logger.log("Started capture for display \(displayID)")
-
-                setupCompressionSession(width: config.width, height: config.height)
+                try await startCapture()
             } catch {
+                guard !Task.isCancelled else { return }
                 Logger.log("Failed to start stream: \(error)")
             }
         }
+        state.withLock { $0.captureTask = task }
+    }
+
+    func stop() {
+        let (stream, sessionBox, task) = state.withLock { state -> (SCStream?, CompressionSessionBox?, Task<Void, Never>?) in
+            let s = state.stream
+            let c = state.compressionSessionBox
+            let t = state.captureTask
+
+            state.stream = nil
+            state.captureTask = nil
+            state.isBusy = false
+            state.sampleBufferBox = nil
+            state.compressionSessionBox = nil
+
+            return (s, c, t)
+        }
+
+        task?.cancel()
+
+        Logger.log("Stopping stream for display \(displayID)")
+
+        if let stream {
+            try? stream.removeStreamOutput(self, type: .screen)
+            Task { try? await stream.stopCapture() }
+        }
+
+        if let session = sessionBox?.session {
+            VTCompressionSessionInvalidate(session)
+        }
+    }
+
+    // MARK: - Private: Capture Setup
+
+    private func startCapture() async throws {
+        let content = try await SCShareableContent.current
+        guard let display = content.displays.first(where: { $0.displayID == self.displayID }) else {
+            throw StreamError.displayNotFound(displayID)
+        }
+
+        let config = createStreamConfiguration(for: display)
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+
+        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global(qos: .userInteractive))
+
+        try await stream.startCapture()
+
+        // Check cancellation before committing state
+        try Task.checkCancellation()
+
+        let (width, height) = (config.width, config.height)
+
+        state.withLock { state in
+            state.stream = stream
+
+            var session: VTCompressionSession?
+            let status = VTCompressionSessionCreate(
+                allocator: kCFAllocatorDefault,
+                width: Int32(width),
+                height: Int32(height),
+                codecType: kCMVideoCodecType_JPEG,
+                encoderSpecification: nil,
+                imageBufferAttributes: nil,
+                compressedDataAllocator: nil,
+                outputCallback: compressionCallback,
+                refcon: Unmanaged.passUnretained(self).toOpaque(),
+                compressionSessionOut: &session
+            )
+
+            if status == noErr, let session {
+                VTSessionSetProperty(session, key: kVTCompressionPropertyKey_Quality, value: Config.videoQuality as CFNumber)
+                VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+                state.compressionSessionBox = CompressionSessionBox(session: session)
+            } else {
+                Logger.log("Failed to create compression session: \(status)")
+            }
+        }
+
+        Logger.log("Started capture for display \(displayID)")
     }
 
     private func createStreamConfiguration(for display: SCDisplay) -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
 
+        config.minimumFrameInterval = Self.frameInterval
+        config.queueDepth = Self.queueDepth
+        config.pixelFormat = Self.pixelFormat
+        config.capturesAudio = false
+
         guard let mode = CGDisplayCopyDisplayMode(display.displayID) else { return config }
 
-        // Calculate scale factor to fit within maxDimension while maintaining aspect ratio
-        let width = mode.pixelWidth
-        let height = mode.pixelHeight
-        let scale: Double = if Config.maxDimension > 0 {
-            min(1.0, Double(Config.maxDimension) / Double(max(width, height)))
-        } else {
-            1.0
-        }
-
-        // Apply scale and ensure dimensions are even (required for most video encoders)
-        config.width = Int(Double(width) * scale) & ~1
-        config.height = Int(Double(height) * scale) & ~1
-
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        config.queueDepth = 2
-        config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        config.capturesAudio = false
+        let (width, height) = calculateDimensions(mode: mode)
+        config.width = width
+        config.height = height
 
         return config
     }
 
-    func stop() {
-        Logger.log("Stopping stream for display \(displayID)")
-        Task { try? await stream?.stopCapture() }
+    private func calculateDimensions(mode: CGDisplayMode) -> (Int, Int) {
+        let width = mode.pixelWidth
+        let height = mode.pixelHeight
 
-        if let session = compressionSession {
-            VTCompressionSessionInvalidate(session)
-            compressionSession = nil
+        guard Config.maxDimension > 0 else {
+            return (width & ~1, height & ~1)
         }
 
-        state.withLock { state in
-            state = ProcessingState()
-        }
+        let scale = min(1.0, Double(Config.maxDimension) / Double(max(width, height)))
+        return (Int(Double(width) * scale) & ~1, Int(Double(height) * scale) & ~1)
     }
 
-    private func setupCompressionSession(width: Int, height: Int) {
-        let status = VTCompressionSessionCreate(
-            allocator: kCFAllocatorDefault,
-            width: Int32(width),
-            height: Int32(height),
-            codecType: kCMVideoCodecType_JPEG,
-            encoderSpecification: nil,
-            imageBufferAttributes: nil,
-            compressedDataAllocator: nil,
-            outputCallback: compressionCallback,
-            refcon: Unmanaged.passUnretained(self).toOpaque(),
-            compressionSessionOut: &compressionSession,
-        )
-
-        if status != noErr {
-            Logger.log("Failed to create compression session: \(status)")
-            return
-        }
-
-        VTSessionSetProperty(compressionSession!, key: kVTCompressionPropertyKey_Quality, value: Config.videoQuality as CFNumber)
-        VTSessionSetProperty(compressionSession!, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
-    }
-
-    func stream(_: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, let session = compressionSession else { return }
-
-        let sampleBufferBox = SampleBufferBox(buffer: sampleBuffer)
-        let dropFramesWhenBusy = Config.dropFramesWhenBusy
-
-        let shouldEncode: Bool = state.withLock { state in
-            if dropFramesWhenBusy, state.isBusy {
-                // If busy, store this frame as the pending one (replacing any previous pending one)
-                state.pendingFrame = sampleBufferBox
-                return false
-            }
-
-            state.isBusy = true
-            return true
-        }
-
-        if shouldEncode {
-            encode(sampleBuffer, session: session)
-        }
-    }
+    // MARK: - Private: MJPEG Compression
 
     private func encode(_ sampleBuffer: CMSampleBuffer, session: VTCompressionSession) {
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
@@ -153,7 +190,7 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
             duration: CMSampleBufferGetDuration(sampleBuffer),
             frameProperties: nil,
             sourceFrameRefcon: nil,
-            infoFlagsOut: nil,
+            infoFlagsOut: nil
         )
 
         if status != noErr {
@@ -163,26 +200,27 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
     }
 
     private func processingFinished() {
-        let pendingFrame: SampleBufferBox? = state.withLock { state in
-            if Config.dropFramesWhenBusy, let pending = state.pendingFrame {
-                state.pendingFrame = nil
-                return pending
+        let (pendingFrame, sessionBox) = state.withLock { state -> (SampleBufferBox?, CompressionSessionBox?) in
+            if Config.dropFramesWhenBusy, let pending = state.sampleBufferBox {
+                state.sampleBufferBox = nil
+                return (pending, state.compressionSessionBox)
             } else {
                 state.isBusy = false
-                return nil
+                return (nil, nil)
             }
         }
 
-        if let pendingFrame {
-            if let session = compressionSession {
-                encode(pendingFrame.buffer, session: session)
-            } else {
-                state.withLock { state in state.isBusy = false }
-            }
+        if let pendingFrame, let session = sessionBox?.session {
+            encode(pendingFrame.buffer, session: session)
+        } else if pendingFrame != nil {
+            // pending frame but no session, clear busy
+            state.withLock { $0.isBusy = false }
         }
     }
 
-    func handleEncodedFrame(_ data: Data) {
+    // MARK: - Internal Handling
+
+    fileprivate func handleEncodedFrame(_ data: Data) {
         outputHandler(data) { [weak self] error in
             if let error {
                 Logger.log("Output failed: \(error)")
@@ -192,12 +230,46 @@ class MJPEGStreamer: NSObject, SCStreamOutput {
         }
     }
 
-    func handleEncodingError() {
+    fileprivate func handleEncodingError() {
         processingFinished()
     }
 }
 
-func compressionCallback(outputCallbackRefCon: UnsafeMutableRawPointer?, sourceFrameRefCon _: UnsafeMutableRawPointer?, status: OSStatus, infoFlags _: VTEncodeInfoFlags, sampleBuffer: CMSampleBuffer?) {
+// MARK: - SCStreamOutput
+
+extension MJPEGStreamer: SCStreamOutput {
+    func stream(_: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Capture session inside lock to ensure thread safety
+        let sampleBufferBox = SampleBufferBox(buffer: sampleBuffer)
+        let (compressionSessionBox, shouldEncode) = state.withLock { state -> (CompressionSessionBox?, Bool) in
+            guard type == .screen, let box = state.compressionSessionBox else { return (nil, false) }
+
+            let dropFramesWhenBusy = Config.dropFramesWhenBusy
+
+            if dropFramesWhenBusy, state.isBusy {
+                state.sampleBufferBox = sampleBufferBox
+                return (nil, false)
+            }
+
+            state.isBusy = true
+            return (box, true)
+        }
+
+        if shouldEncode, let session = compressionSessionBox?.session {
+            encode(sampleBuffer, session: session)
+        }
+    }
+}
+
+// MARK: - Compression Callback
+
+private func compressionCallback(
+    outputCallbackRefCon: UnsafeMutableRawPointer?,
+    sourceFrameRefCon _: UnsafeMutableRawPointer?,
+    status: OSStatus,
+    infoFlags _: VTEncodeInfoFlags,
+    sampleBuffer: CMSampleBuffer?
+) {
     guard let refCon = outputCallbackRefCon else { return }
     let streamer = Unmanaged<MJPEGStreamer>.fromOpaque(refCon).takeUnretainedValue()
 
@@ -207,4 +279,10 @@ func compressionCallback(outputCallbackRefCon: UnsafeMutableRawPointer?, sourceF
     }
 
     streamer.handleEncodedFrame(data)
+}
+
+// MARK: - Errors
+
+private enum StreamError: Error {
+    case displayNotFound(Int)
 }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public struct ConfigData: Codable {
     public var maxDimension: Int
@@ -9,6 +10,8 @@ public struct ConfigData: Codable {
 public enum Config {
     public static let port: UInt16 = 65532
     public static let boundary = "meDisplayBoundary"
+
+    private static let lock = OSAllocatedUnfairLock()
 
     private static let fileURL: URL = {
         // Try to find a suitable location for config
@@ -59,30 +62,40 @@ public enum Config {
     }()
 
     static var maxDimension: Int {
-        get { _data.maxDimension }
+        get { lock.withLock { _data.maxDimension } }
         set {
-            _data.maxDimension = newValue
-            save()
+            lock.withLock {
+                _data.maxDimension = newValue
+                saveData()
+            }
         }
     }
 
     static var videoQuality: Float {
-        get { _data.videoQuality }
+        get { lock.withLock { _data.videoQuality } }
         set {
-            _data.videoQuality = newValue
-            save()
+            lock.withLock {
+                _data.videoQuality = newValue
+                saveData()
+            }
         }
     }
 
     static var dropFramesWhenBusy: Bool {
-        get { _data.dropFramesWhenBusy ?? true }
+        get { lock.withLock { _data.dropFramesWhenBusy ?? true } }
         set {
-            _data.dropFramesWhenBusy = newValue
-            save()
+            lock.withLock {
+                _data.dropFramesWhenBusy = newValue
+                saveData()
+            }
         }
     }
 
     static func save() {
+        lock.withLock { saveData() }
+    }
+
+    private static func saveData() {
         do {
             let data = try JSONEncoder().encode(_data)
             try data.write(to: fileURL)
@@ -92,11 +105,13 @@ public enum Config {
     }
 
     static func load() -> ConfigData {
-        _data
+        lock.withLock { _data }
     }
 
     static func update(_ configData: ConfigData) {
-        _data = configData
-        save()
+        lock.withLock {
+            _data = configData
+            saveData()
+        }
     }
 }

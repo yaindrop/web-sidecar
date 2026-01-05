@@ -7,6 +7,8 @@
     "format": "swiftformat .",
     "lint": "swiftformat --lint .",
     "build": "cd ../frontend && pnpm build && cd ../macos && ./bundle_app.sh",
-    "open": "open .build/release/WebSidecar.app"
+    "build:app": "./bundle_app.sh",
+    "open": "open .build/release/WebSidecar.app",
+    "dev": "./.build/release/WebSidecar.app/Contents/MacOS/WebSidecar"
   }
 }
