@@ -176,11 +176,22 @@ final class MJPEGStreamer: NSObject {
 
     // MARK: - Private: MJPEG Compression
 
+    fileprivate class FrameEncodingContext {
+        let startTime: UInt64
+        init() {
+            self.startTime = DispatchTime.now().uptimeNanoseconds
+        }
+    }
+
     private func encode(_ sampleBuffer: CMSampleBuffer, session: VTCompressionSession) {
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             processingFinished()
             return
         }
+
+
+        let context = FrameEncodingContext()
+        let refcon = Unmanaged.passRetained(context).toOpaque()
 
         let status = VTCompressionSessionEncodeFrame(
             session,
@@ -188,11 +199,13 @@ final class MJPEGStreamer: NSObject {
             presentationTimeStamp: CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
             duration: CMSampleBufferGetDuration(sampleBuffer),
             frameProperties: nil,
-            sourceFrameRefcon: nil,
+            sourceFrameRefcon: refcon,
             infoFlagsOut: nil,
         )
 
         if status != noErr {
+            // Release context if encoding failed to start
+            _ = Unmanaged<FrameEncodingContext>.fromOpaque(refcon).takeRetainedValue()
             Log.stream.error("Encoding failed: \(status)")
             processingFinished()
         }
@@ -264,13 +277,31 @@ extension MJPEGStreamer: SCStreamOutput {
 
 private func compressionCallback(
     outputCallbackRefCon: UnsafeMutableRawPointer?,
-    sourceFrameRefCon _: UnsafeMutableRawPointer?,
+    sourceFrameRefCon: UnsafeMutableRawPointer?,
     status: OSStatus,
     infoFlags _: VTEncodeInfoFlags,
     sampleBuffer: CMSampleBuffer?,
 ) {
     guard let refCon = outputCallbackRefCon else { return }
     let streamer = Unmanaged<MJPEGStreamer>.fromOpaque(refCon).takeUnretainedValue()
+
+    if let sourceRefCon = sourceFrameRefCon {
+        let context = Unmanaged<MJPEGStreamer.FrameEncodingContext>.fromOpaque(sourceRefCon).takeRetainedValue()
+        let duration = DispatchTime.now().uptimeNanoseconds - context.startTime
+        let durationMs = Double(duration) / 1_000_000.0
+        
+        var sizeString = ""
+        if status == noErr, let sampleBuffer {
+            let size = CMSampleBufferGetTotalSampleSize(sampleBuffer)
+            if size >= 1_000_000 {
+                sizeString = String(format: ", size: %.3f MB", Double(size) / 1_000_000.0)
+            } else {
+                sizeString = String(format: ", size: %.3f KB", Double(size) / 1_000.0)
+            }
+        }
+        
+        Log.stream.info("Frame encoded in \(String(format: "%.2f", durationMs)) ms\(sizeString)")
+    }
 
     guard status == noErr, let sampleBuffer, let data = sampleBuffer.createData() else {
         streamer.handleEncodingError()
